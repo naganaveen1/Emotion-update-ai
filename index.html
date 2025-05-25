@@ -288,7 +288,6 @@
         const textEmotionScores = document.getElementById('text-emotion-scores').querySelector('ul');
         const textLoadingContainer = document.getElementById('text-loading-container');
         const textErrorMessage = document.getElementById('text-error-message');
-        let textPipeline = null; // Stores the loaded text classification pipeline
 
         // More comprehensive emotion map for text (can be extended)
         const textEmotionMap = {
@@ -602,32 +601,6 @@
         });
 
         // --- Text Emotion Detection Functions ---
-        async function loadTextModel() {
-            if (textPipeline) return; // Model already loaded
-
-            showElement(textLoadingContainer);
-            hideElement(textAnalysisResult);
-            hideElement(textErrorMessage);
-            analyzeTextButton.classList.add('disabled');
-            analyzeTextButton.disabled = true;
-
-            try {
-                // Using a generic sentiment analysis model, as specific emotion models are often larger
-                // For direct emotion, search for models like 'j-hartmann/emotion-english-distilroberta-base'
-                // but be aware of size. This one is smaller for sentiment.
-                updateLoadingText(textLoadingContainer.querySelector('p'), "Downloading Text AI Model (approx 20MB)...");
-                textPipeline = await transformers.pipeline('sentiment-analysis', 'Xenova/distilbert-base-uncased-finetuned-sst-2-english');
-                updateLoadingText(textLoadingContainer.querySelector('p'), "Text AI Model Ready.");
-                hideElement(textLoadingContainer);
-                analyzeTextButton.classList.remove('disabled');
-                analyzeTextButton.disabled = false;
-            } catch (error) {
-                showStatus(textErrorMessage, `Failed to load text AI model: ${error.message}. Please refresh.`);
-                hideElement(textLoadingContainer);
-                console.error("Text model loading error:", error);
-            }
-        }
-
         async function analyzeTextEmotion() {
             const text = textInput.value.trim();
             if (!text) {
@@ -635,48 +608,59 @@
                 hideElement(textAnalysisResult);
                 return;
             }
-            if (!textPipeline) {
-                showStatus(textErrorMessage, "Text AI model not loaded. Please wait or refresh.");
-                return;
-            }
 
             hideElement(textErrorMessage);
             showElement(textLoadingContainer);
             updateLoadingText(textLoadingContainer.querySelector('p'), "Analyzing text...");
-            hideElement(textAnalysisResult); // Hide previous results
+            hideElement(textAnalysisResult);
+
+            const apiKey = "AIzaSyDGdi8LSSSCTH-ARmQG3pIZkfCUxif2Db0";
+            const modelName = "gemini-2.0-flash";
+            const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${apiKey}`;
+            const prompt = `Analyze the following text and return ONLY the dominant emotion (e.g., happy, sad, angry, neutral, etc.):\n\n${text}`;
 
             try {
-                const outputs = await textPipeline(text);
-                const result = outputs[0]; // Example output: [{ label: 'POSITIVE', score: 0.99 }]
-
-                let dominantEmotion = result.label.toLowerCase();
-                if (dominantEmotion === 'positive') {
-                    dominantEmotion = 'happy'; // Map to a general positive emotion
-                } else if (dominantEmotion === 'negative') {
-                    dominantEmotion = 'sad'; // Map to a general negative emotion
-                }
-                 // If using a dedicated emotion model, `result.label` would be the emotion directly.
-
-                const emotionData = textEmotionMap[dominantEmotion] || { text: result.label, emoji: '❓' };
-                
-                textEmotionText.textContent = emotionData.text;
-                textEmotionEmoji.textContent = emotionData.emoji;
-
-                // Display all scores if available (for emotion models, this is common)
-                textEmotionScores.innerHTML = ''; // Clear previous scores
-                outputs.forEach(item => {
-                    const li = document.createElement('li');
-                    li.innerHTML = `<span class="font-bold">${item.label}:</span> ${(item.score * 100).toFixed(2)}%`;
-                    textEmotionScores.appendChild(li);
+                const response = await fetch(endpoint, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        contents: [
+                            {
+                                parts: [
+                                    { text: prompt }
+                                ]
+                            }
+                        ]
+                    })
                 });
+                if (!response.ok) throw new Error(`API error: ${response.status}`);
+                const data = await response.json();
+                // Parse Gemini response
+                let emotion = null;
+                if (data.candidates && data.candidates.length > 0) {
+                    // Try to extract the emotion from the response text
+                    const textResponse = data.candidates[0].content.parts[0].text.trim();
+                    // Use only the first word (in case Gemini returns a sentence)
+                    emotion = textResponse.split(/\s|\.|,|!|\n/)[0].toLowerCase();
+                }
+                if (!emotion) throw new Error("Could not extract emotion from response.");
+
+                // Map to emoji if possible
+                const emotionData = textEmotionMap[emotion] || { text: emotion, emoji: '❓' };
+                textEmotionText.textContent = emotionData.text.charAt(0).toUpperCase() + emotionData.text.slice(1);
+                textEmotionEmoji.textContent = emotionData.emoji;
+                textEmotionScores.innerHTML = '';
+                const li = document.createElement('li');
+                li.innerHTML = `<span class=\"font-bold\">Raw response:</span> ${emotion}`;
+                textEmotionScores.appendChild(li);
 
                 showElement(textAnalysisResult);
                 hideElement(textLoadingContainer);
-
             } catch (error) {
                 showStatus(textErrorMessage, `Error during text analysis: ${error.message}`);
                 hideElement(textLoadingContainer);
-                console.error("Text analysis error:", error);
             }
         }
 
@@ -853,10 +837,6 @@
             if (document.querySelector('.tab-button.active').dataset.tab === 'camera') {
                 initializeApp();
             }
-            
-            // Pre-load text model when DOM is ready, for faster access when tab is switched
-            loadTextModel();
-            
             // Pre-load audio context (but not heavy model)
             initAudioContext();
         });
