@@ -1,0 +1,865 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI Emotion Detector</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/face-api.js@0.22.2/dist/face-api.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@xenova/transformers@2.14.0"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700&family=Poppins:wght@600&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+            overflow-x: hidden;
+            background: linear-gradient(to bottom right, #0f172a, #1a202c); /* Darker, gradient background */
+            color: #e2e8f0; /* Light text */
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            min-h-screen: 100vh;
+            padding: 1rem;
+            box-sizing: border-box;
+        }
+        h1, h2 {
+            font-family: 'Poppins', sans-serif;
+        }
+        .container {
+            width: 100%;
+            max-width: 800px;
+            background-color: rgba(23, 33, 50, 0.8); /* Slightly lighter dark slate with opacity */
+            backdrop-filter: blur(10px);
+            -webkit-backdrop-filter: blur(10px);
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
+            border-radius: 1.5rem; /* More rounded */
+            padding: 2rem;
+            margin-top: 1rem;
+            margin-bottom: 1rem;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            transition: all 0.3s ease-in-out;
+        }
+        #video-container {
+            position: relative;
+            width: 100%;
+            max-width: 640px;
+            aspect-ratio: 16 / 9;
+            margin: auto;
+            background-color: #000;
+            border-radius: 0.75rem;
+            overflow: hidden;
+            border: 2px solid #3b82f6; /* Blue border for video */
+            box-shadow: 0 0 15px rgba(59, 130, 246, 0.5); /* Blue glow */
+        }
+        #video, #overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            border-radius: 0.75rem;
+        }
+        #video {
+            object-fit: cover;
+            transform: scaleX(-1); /* Mirror effect */
+        }
+        #overlay {
+            transform: scaleX(-1); /* Mirror canvas to match video */
+        }
+        .emotion-emoji {
+            font-size: 3.5rem; /* Larger emoji */
+            line-height: 1;
+        }
+        /* Loading Spinner */
+        .loader {
+            border: 6px solid #2d3748; /* Darker slate */
+            border-top: 6px solid #3498db; /* Blue */
+            border-radius: 50%;
+            width: 50px; /* Larger spinner */
+            height: 50px;
+            animation: spin 1s linear infinite;
+            margin: 0 auto 15px auto;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        .hidden { display: none; }
+
+        /* Tabs */
+        .tab-button {
+            padding: 0.75rem 1.5rem;
+            border-radius: 0.5rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            background-color: #3b82f620; /* Light blue transparent */
+            color: #93c5fd; /* Lighter blue */
+        }
+        .tab-button:hover {
+            background-color: #3b82f640;
+            color: #dbeafe;
+        }
+        .tab-button.active {
+            background-color: #3b82f6; /* Solid blue */
+            color: white;
+            box-shadow: 0 4px 15px rgba(59, 130, 246, 0.4);
+        }
+
+        /* Input fields */
+        textarea, input[type="text"] {
+            background-color: #1f2937; /* Darker input background */
+            border: 1px solid #4a5568;
+            padding: 0.75rem;
+            border-radius: 0.5rem;
+            color: #e2e8f0;
+            transition: border-color 0.2s;
+        }
+        textarea:focus, input[type="text"]:focus {
+            outline: none;
+            border-color: #3b82f6;
+            box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.5);
+        }
+        
+        .play-button {
+            background-color: #3b82f6;
+            color: white;
+            padding: 0.75rem 1.5rem;
+            border-radius: 0.75rem;
+            font-weight: bold;
+            transition: background-color 0.3s ease, transform 0.2s ease;
+            cursor: pointer;
+        }
+        .play-button:hover {
+            background-color: #2563eb;
+            transform: translateY(-2px);
+        }
+        .play-button:active {
+            transform: translateY(0);
+        }
+        .play-button.disabled {
+            background-color: #60a5fa;
+            cursor: not-allowed;
+            opacity: 0.7;
+        }
+
+        /* Audio specific styles */
+        #audio-controls button {
+            background-color: #3b82f6;
+            color: white;
+            padding: 0.5rem 1rem;
+            border-radius: 0.5rem;
+            font-weight: bold;
+            transition: background-color 0.3s ease;
+            cursor: pointer;
+        }
+        #audio-controls button:hover {
+            background-color: #2563eb;
+        }
+        #audio-controls button:disabled {
+            background-color: #60a5fa;
+            cursor: not-allowed;
+            opacity: 0.7;
+        }
+    </style>
+</head>
+<body class="selection:bg-sky-500 selection:text-white">
+
+    <div class="container">
+        <h1 class="text-4xl font-bold text-sky-400 mb-2 animate-pulse">AI Emotion Detector</h1>
+        <p class="text-slate-300 text-lg mb-6">Uncover emotions from various inputs.</p>
+
+        <div class="flex space-x-4 mb-8 bg-slate-700 p-2 rounded-xl">
+            <button class="tab-button active" data-tab="camera">Camera</button>
+            <button class="tab-button" data-tab="text">Text</button>
+            <button class="tab-button" data-tab="audio">Audio (Experimental)</button>
+        </div>
+
+        <div id="camera-tab-content" class="tab-content w-full flex flex-col items-center">
+            <div id="video-container" class="shadow-lg rounded-xl overflow-hidden mb-6">
+                <video id="video" autoplay muted playsinline></video>
+                <canvas id="overlay"></canvas>
+            </div>
+
+            <div id="status-container" class="py-4 space-y-3 w-full text-center">
+                <div id="loading-container" class="text-sky-300">
+                    <div class="loader"></div>
+                    <p id="loading-text">Initializing Camera Module...</p>
+                </div>
+                <div id="emotion-display" class="hidden">
+                    <p class="text-xl font-semibold text-slate-300">Detected Emotion:</p>
+                    <p id="camera-emotion-text" class="text-5xl font-bold text-white mt-1">...</p>
+                    <p id="camera-emotion-emoji" class="emotion-emoji mt-2">🤔</p>
+                </div>
+                <div id="camera-error-message" class="text-red-400 font-semibold hidden p-3 bg-red-900 bg-opacity-30 rounded-lg"></div>
+                <button id="camera-play-button" class="play-button hidden mt-4">Start Camera</button>
+            </div>
+        </div>
+
+        <div id="text-tab-content" class="tab-content hidden w-full flex flex-col items-center">
+            <h2 class="text-2xl font-semibold text-sky-300 mb-4">Analyze Text Emotion</h2>
+            <textarea id="text-input" class="w-full p-4 h-32 resize-none rounded-lg focus:ring-2 focus:ring-sky-500 transition-all text-lg mb-4" placeholder="Enter text here to detect emotions..."></textarea>
+            <button id="analyze-text-button" class="play-button disabled mb-4">Analyze Text</button>
+            
+            <div id="text-analysis-result" class="text-center hidden p-4 bg-slate-700 rounded-lg w-full">
+                <p class="text-xl font-semibold text-slate-300">Dominant Emotion:</p>
+                <p id="text-emotion-text" class="text-4xl font-bold text-white mt-1">...</p>
+                <p id="text-emotion-emoji" class="emotion-emoji mt-2">...</p>
+                <div id="text-emotion-scores" class="mt-4 text-sm text-slate-400">
+                    <p class="font-bold mb-2">Confidence Scores:</p>
+                    <ul class="list-none p-0 text-left w-fit mx-auto"></ul>
+                </div>
+            </div>
+            <div id="text-loading-container" class="text-sky-300 hidden">
+                <div class="loader w-8 h-8 border-4"></div>
+                <p>Loading Text AI Model...</p>
+            </div>
+            <div id="text-error-message" class="text-red-400 font-semibold hidden p-3 bg-red-900 bg-opacity-30 rounded-lg"></div>
+        </div>
+
+        <div id="audio-tab-content" class="tab-content hidden w-full flex flex-col items-center">
+            <h2 class="text-2xl font-semibold text-sky-300 mb-4">Analyze Audio Emotion</h2>
+            <p class="text-slate-400 mb-4 text-center">Record your voice to detect emotion. (Note: This feature is experimental and requires significant model download.)</p>
+            
+            <div id="audio-controls" class="flex space-x-4 mb-4">
+                <button id="start-recording" class="play-button">Start Recording</button>
+                <button id="stop-recording" class="play-button disabled">Stop Recording</button>
+                <button id="analyze-audio" class="play-button disabled">Analyze Audio</button>
+            </div>
+            <audio id="audio-playback" controls class="hidden w-full mb-4 rounded-lg"></audio>
+
+            <div id="audio-analysis-result" class="text-center hidden p-4 bg-slate-700 rounded-lg w-full">
+                <p class="text-xl font-semibold text-slate-300">Detected Emotion:</p>
+                <p id="audio-emotion-text" class="text-4xl font-bold text-white mt-1">...</p>
+                <p id="audio-emotion-emoji" class="emotion-emoji mt-2">...</p>
+            </div>
+            <div id="audio-loading-container" class="text-sky-300 hidden">
+                <div class="loader w-8 h-8 border-4"></div>
+                <p>Preparing Audio AI Model...</p>
+            </div>
+            <div id="audio-status" class="text-slate-400 mt-2">Ready to record.</div>
+            <div id="audio-error-message" class="text-red-400 font-semibold hidden p-3 bg-red-900 bg-opacity-30 rounded-lg"></div>
+        </div>
+
+
+        <p class="text-xs text-slate-500 pt-6">
+            Powered by <a href="https://github.com/vladmandic/face-api" target="_blank" rel="noopener noreferrer" class="hover:text-sky-400 underline">face-api.js</a> & <a href="https://huggingface.co/docs/transformers.js" target="_blank" rel="noopener noreferrer" class="hover:text-sky-400 underline">Transformers.js</a>. Privacy: All processing is local.
+        </p>
+    </div>
+
+    <script>
+        // --- Global Elements ---
+        const video = document.getElementById('video');
+        const overlayCanvas = document.getElementById('overlay');
+        const cameraLoadingContainer = document.getElementById('loading-container');
+        const cameraLoadingText = document.getElementById('loading-text');
+        const cameraEmotionDisplay = document.getElementById('emotion-display');
+        const cameraEmotionText = document.getElementById('camera-emotion-text');
+        const cameraEmotionEmoji = document.getElementById('camera-emotion-emoji');
+        const cameraErrorMessage = document.getElementById('camera-error-message');
+        const cameraPlayButton = document.getElementById('camera-play-button');
+        const videoContainer = document.getElementById('video-container');
+
+        const tabButtons = document.querySelectorAll('.tab-button');
+        const tabContents = document.querySelectorAll('.tab-content');
+
+        // --- Camera Specific ---
+        const FACE_API_MODEL_URL = 'https://cdn.jsdelivr.net/npm/@vladmandic/face-api/model';
+        let faceDetectionInterval = null; // To control the detection loop
+
+        const cameraEmotionMap = {
+            neutral: { text: 'Neutral', emoji: '😐' },
+            happy: { text: 'Happy', emoji: '😄' },
+            sad: { text: 'Sad', emoji: '😢' },
+            angry: { text: 'Angry', emoji: '😠' },
+            fearful: { text: 'Fearful', emoji: '😨' },
+            disgusted: { text: 'Disgusted', emoji: '🤢' },
+            surprised: { text: 'Surprised', emoji: '😲' }
+        };
+
+        // --- Text Specific ---
+        const textInput = document.getElementById('text-input');
+        const analyzeTextButton = document.getElementById('analyze-text-button');
+        const textAnalysisResult = document.getElementById('text-analysis-result');
+        const textEmotionText = document.getElementById('text-emotion-text');
+        const textEmotionEmoji = document.getElementById('text-emotion-emoji');
+        const textEmotionScores = document.getElementById('text-emotion-scores').querySelector('ul');
+        const textLoadingContainer = document.getElementById('text-loading-container');
+        const textErrorMessage = document.getElementById('text-error-message');
+        let textPipeline = null; // Stores the loaded text classification pipeline
+
+        // More comprehensive emotion map for text (can be extended)
+        const textEmotionMap = {
+            'positive': { text: 'Positive', emoji: '😊' },
+            'negative': { text: 'Negative', emoji: '😔' },
+            'neutral': { text: 'Neutral', emoji: '😐' },
+            // Common additional emotions (adjust emojis as needed)
+            'joy': { text: 'Joy', emoji: '😁' },
+            'sadness': { text: 'Sadness', emoji: '😥' },
+            'anger': { text: 'Anger', emoji: '😡' },
+            'fear': { text: 'Fear', emoji: '😟' },
+            'surprise': { text: 'Surprise', emoji: '😮' },
+            'disgust': { text: 'Disgust', emoji: '🤢' },
+            'anticipation': { text: 'Anticipation', emoji: ' expectant' },
+            'trust': { text: 'Trust', emoji: '🤝' },
+            'love': { text: 'Love', emoji: '🥰' }
+        };
+
+        // --- Audio Specific ---
+        const startRecordingButton = document.getElementById('start-recording');
+        const stopRecordingButton = document.getElementById('stop-recording');
+        const analyzeAudioButton = document.getElementById('analyze-audio');
+        const audioPlayback = document.getElementById('audio-playback');
+        const audioAnalysisResult = document.getElementById('audio-analysis-result');
+        const audioEmotionText = document.getElementById('audio-emotion-text');
+        const audioEmotionEmoji = document.getElementById('audio-emotion-emoji');
+        const audioLoadingContainer = document.getElementById('audio-loading-container');
+        const audioStatus = document.getElementById('audio-status');
+        const audioErrorMessage = document.getElementById('audio-error-message');
+
+        let mediaRecorder;
+        let audioChunks = [];
+        let audioBlob = null;
+        let audioContext; // Will be initialized on first recording attempt
+
+        // --- Utility Functions ---
+        function updateLoadingText(container, text) {
+            console.log("Status:", text);
+            container.textContent = text;
+        }
+
+        function showStatus(container, message, isError = false) {
+            container.textContent = message;
+            container.classList.remove('hidden');
+            if (isError) {
+                container.classList.add('text-red-400');
+                container.classList.remove('text-sky-300');
+            } else {
+                container.classList.remove('text-red-400');
+                container.classList.add('text-sky-300');
+            }
+        }
+
+        function hideElement(element) {
+            element.classList.add('hidden');
+        }
+
+        function showElement(element) {
+            element.classList.remove('hidden');
+        }
+
+        // --- Tab Switching Logic ---
+        function switchTab(activeTabId) {
+            tabButtons.forEach(button => {
+                if (button.dataset.tab === activeTabId) {
+                    button.classList.add('active');
+                } else {
+                    button.classList.remove('active');
+                }
+            });
+
+            tabContents.forEach(content => {
+                if (content.id === `${activeTabId}-tab-content`) {
+                    showElement(content);
+                } else {
+                    hideElement(content);
+                }
+            });
+
+            // Stop camera when switching away
+            if (activeTabId !== 'camera') {
+                stopCamera();
+            } else {
+                // If switching back to camera, try to restart it
+                initializeApp();
+            }
+        }
+
+        tabButtons.forEach(button => {
+            button.addEventListener('click', () => {
+                switchTab(button.dataset.tab);
+            });
+        });
+
+        // --- Camera Functions ---
+        function updateCameraLoadingText(text) {
+            updateLoadingText(cameraLoadingText, text);
+        }
+
+        function showCameraError(message) {
+            showStatus(cameraErrorMessage, message, true);
+            hideElement(cameraLoadingContainer);
+            hideElement(cameraEmotionDisplay);
+            showElement(cameraPlayButton); // Give option to retry
+            cameraPlayButton.textContent = "Retry Camera";
+            cameraPlayButton.onclick = initializeApp; // Re-attempt init
+        }
+
+        async function loadFaceApiModels() {
+            updateCameraLoadingText("Checking AI library...");
+            if (typeof faceapi === 'undefined') {
+                showCameraError("Core AI library failed to load. Please check your internet connection or ad-blockers and refresh.");
+                return false;
+            }
+            try {
+                updateCameraLoadingText("Loading AI Models (Tiny)...");
+                await Promise.all([
+                    faceapi.nets.tinyFaceDetector.loadFromUri(FACE_API_MODEL_URL),
+                    faceapi.nets.faceLandmark68TinyNet.loadFromUri(FACE_API_MODEL_URL),
+                    faceapi.nets.faceExpressionNet.loadFromUri(FACE_API_MODEL_URL)
+                ]);
+                updateCameraLoadingText("Models Loaded!");
+                return true;
+            } catch (error) {
+                showCameraError(`Failed to load AI models. Please refresh. (${error.message}, URL: ${FACE_API_MODEL_URL})`);
+                return false;
+            }
+        }
+
+        async function startVideo() {
+            updateCameraLoadingText("Requesting Camera Access...");
+            try {
+                if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+                    showCameraError("Camera API not supported. Please use a modern browser.");
+                    return false;
+                }
+                const stream = await navigator.mediaDevices.getUserMedia({ 
+                    video: { 
+                        facingMode: 'user', 
+                        width: { ideal: 640 }, // Request optimal resolution
+                        height: { ideal: 480 } 
+                    } 
+                });
+                video.srcObject = stream;
+                updateCameraLoadingText("Starting Camera Feed...");
+                return new Promise((resolve) => {
+                    video.onloadedmetadata = () => {
+                        console.log("Camera feed started.");
+                        resolve(true);
+                    };
+                    video.onerror = () => {
+                        showCameraError("Error with video feed.");
+                        resolve(false);
+                    };
+                });
+            } catch (err) {
+                if (err.name === "NotAllowedError" || err.name === "PermissionDeniedError") {
+                    showCameraError("Camera access denied. Please allow camera access and refresh.");
+                } else if (err.name === "NotFoundError" || err.name === "DevicesNotFoundError") {
+                    showCameraError("No camera found. Please connect a camera.");
+                } else {
+                    showCameraError(`Could not access camera. (${err.name})`);
+                }
+                return false;
+            }
+        }
+
+        function stopCamera() {
+            if (video.srcObject) {
+                const stream = video.srcObject;
+                const tracks = stream.getTracks();
+                tracks.forEach(track => track.stop());
+                video.srcObject = null;
+                console.log("Camera stopped.");
+            }
+            if (faceDetectionInterval) {
+                clearInterval(faceDetectionInterval);
+                faceDetectionInterval = null;
+                console.log("Face detection interval cleared.");
+            }
+            hideElement(cameraEmotionDisplay);
+            hideElement(cameraPlayButton);
+            showElement(cameraLoadingContainer);
+            updateCameraLoadingText("Camera module inactive.");
+        }
+
+        function updateCameraEmotionDisplay(detections) {
+            if (detections && detections.length > 0) {
+                const expressions = detections[0].expressions;
+                let dominantEmotion = 'neutral';
+                let maxScore = 0;
+                for (const [emotion, score] of Object.entries(expressions)) {
+                    if (score > maxScore) {
+                        maxScore = score;
+                        dominantEmotion = emotion;
+                    }
+                }
+                const emotionData = cameraEmotionMap[dominantEmotion] || cameraEmotionMap.neutral;
+                cameraEmotionText.textContent = emotionData.text;
+                cameraEmotionEmoji.textContent = emotionData.emoji;
+            } else {
+                cameraEmotionText.textContent = "No Face Detected";
+                cameraEmotionEmoji.textContent = "👀";
+            }
+        }
+
+        function startFaceDetectionLoop() {
+            const displaySize = { width: videoContainer.clientWidth, height: videoContainer.clientHeight };
+            faceapi.matchDimensions(overlayCanvas, displaySize);
+            const context = overlayCanvas.getContext('2d', { willReadFrequently: true });
+
+            // Using TinyFaceDetectorOptions with a smaller input size for potentially faster processing
+            // A smaller inputSize means the model sees a downscaled image, which is faster.
+            // 224 is a common, balanced size.
+            const options = new faceapi.TinyFaceDetectorOptions({ inputSize: 224, scoreThreshold: 0.5 });
+
+            // Clear previous interval if any
+            if (faceDetectionInterval) {
+                clearInterval(faceDetectionInterval);
+            }
+
+            // Process every 100ms (10 frames per second approx) for better performance
+            faceDetectionInterval = setInterval(async () => {
+                if (video.paused || video.ended || !video.srcObject || video.readyState < 3) {
+                    return; // Don't process if video isn't ready
+                }
+
+                try {
+                    const detections = await faceapi.detectAllFaces(video, options)
+                        .withFaceLandmarks(true)
+                        .withFaceExpressions();
+
+                    const resizedDetections = faceapi.resizeResults(detections, displaySize);
+
+                    context.clearRect(0, 0, overlayCanvas.width, overlayCanvas.height);
+                    // Optional: Draw detections - for debugging only, impacts performance
+                    // faceapi.draw.drawDetections(overlayCanvas, resizedDetections);
+                    // faceapi.draw.drawFaceLandmarks(overlayCanvas, resizedDetections);
+                    // faceapi.draw.drawFaceExpressions(overlayCanvas, resizedDetections, 0.05); // Adjust min confidence for drawing
+
+                    updateCameraEmotionDisplay(resizedDetections);
+                } catch (e) {
+                    console.error("Error during face detection:", e);
+                    // Handle detection errors gracefully, e.g., show "Processing Error"
+                }
+            }, 100); // Detect every 100ms
+        }
+
+        async function initializeApp() {
+            if (document.querySelector('.tab-button.active').dataset.tab !== 'camera') {
+                console.log("Not in camera tab, skipping camera initialization.");
+                return; // Only init camera if on camera tab
+            }
+
+            hideElement(cameraErrorMessage);
+            hideElement(cameraPlayButton);
+            showElement(cameraLoadingContainer);
+            updateCameraLoadingText("Initializing Camera Module...");
+
+            const modelsOk = await loadFaceApiModels();
+            if (!modelsOk) return;
+
+            const videoOk = await startVideo();
+            if (!videoOk) return;
+
+            video.addEventListener('play', () => {
+                console.log("Video play event triggered. Starting detection.");
+                hideElement(cameraLoadingContainer);
+                hideElement(cameraErrorMessage);
+                showElement(cameraEmotionDisplay);
+                startFaceDetectionLoop();
+            }, { once: true }); // Ensure this listener runs only once
+
+            video.addEventListener('loadeddata', () => {
+                console.log("Video data loaded.");
+                if (video.paused) {
+                    video.play().catch(e => {
+                        console.warn("Autoplay blocked on loadeddata:", e);
+                        showCameraError("Autoplay prevented. Please click 'Start Camera' to begin.");
+                        showElement(cameraPlayButton);
+                        cameraPlayButton.textContent = "Start Camera";
+                        cameraPlayButton.onclick = () => {
+                            video.play().then(() => hideElement(cameraPlayButton)).catch(err => showCameraError(`Playback failed: ${err.message}`));
+                        };
+                    });
+                }
+            }, { once: true });
+
+            // Initial attempt to play, might be blocked by browser policies
+            try {
+                if(video.paused) {
+                    await video.play();
+                }
+            } catch (playError) {
+                console.warn("Initial autoplay attempt blocked:", playError);
+                showCameraError("Autoplay prevented. Please click 'Start Camera' to begin.");
+                showElement(cameraPlayButton);
+                cameraPlayButton.textContent = "Start Camera";
+                cameraPlayButton.onclick = () => {
+                    video.play().then(() => hideElement(cameraPlayButton)).catch(err => showCameraError(`Playback failed: ${err.message}`));
+                };
+            }
+        }
+
+        // Adjust canvas on resize
+        window.addEventListener('resize', () => {
+            if (document.querySelector('.tab-button.active').dataset.tab === 'camera' && video.srcObject && video.readyState > 0) {
+                const displaySize = { width: videoContainer.clientWidth, height: videoContainer.clientHeight };
+                faceapi.matchDimensions(overlayCanvas, displaySize);
+            }
+        });
+
+        // --- Text Emotion Detection Functions ---
+        async function loadTextModel() {
+            if (textPipeline) return; // Model already loaded
+
+            showElement(textLoadingContainer);
+            hideElement(textAnalysisResult);
+            hideElement(textErrorMessage);
+            analyzeTextButton.classList.add('disabled');
+            analyzeTextButton.disabled = true;
+
+            try {
+                // Using a generic sentiment analysis model, as specific emotion models are often larger
+                // For direct emotion, search for models like 'j-hartmann/emotion-english-distilroberta-base'
+                // but be aware of size. This one is smaller for sentiment.
+                updateLoadingText(textLoadingContainer.querySelector('p'), "Downloading Text AI Model (approx 20MB)...");
+                textPipeline = await transformers.pipeline('sentiment-analysis', 'Xenova/distilbert-base-uncased-finetuned-sst-2-english');
+                updateLoadingText(textLoadingContainer.querySelector('p'), "Text AI Model Ready.");
+                hideElement(textLoadingContainer);
+                analyzeTextButton.classList.remove('disabled');
+                analyzeTextButton.disabled = false;
+            } catch (error) {
+                showStatus(textErrorMessage, `Failed to load text AI model: ${error.message}. Please refresh.`);
+                hideElement(textLoadingContainer);
+                console.error("Text model loading error:", error);
+            }
+        }
+
+        async function analyzeTextEmotion() {
+            const text = textInput.value.trim();
+            if (!text) {
+                showStatus(textErrorMessage, "Please enter some text to analyze.");
+                hideElement(textAnalysisResult);
+                return;
+            }
+            if (!textPipeline) {
+                showStatus(textErrorMessage, "Text AI model not loaded. Please wait or refresh.");
+                return;
+            }
+
+            hideElement(textErrorMessage);
+            showElement(textLoadingContainer);
+            updateLoadingText(textLoadingContainer.querySelector('p'), "Analyzing text...");
+            hideElement(textAnalysisResult); // Hide previous results
+
+            try {
+                const outputs = await textPipeline(text);
+                const result = outputs[0]; // Example output: [{ label: 'POSITIVE', score: 0.99 }]
+
+                let dominantEmotion = result.label.toLowerCase();
+                if (dominantEmotion === 'positive') {
+                    dominantEmotion = 'happy'; // Map to a general positive emotion
+                } else if (dominantEmotion === 'negative') {
+                    dominantEmotion = 'sad'; // Map to a general negative emotion
+                }
+                 // If using a dedicated emotion model, `result.label` would be the emotion directly.
+
+                const emotionData = textEmotionMap[dominantEmotion] || { text: result.label, emoji: '❓' };
+                
+                textEmotionText.textContent = emotionData.text;
+                textEmotionEmoji.textContent = emotionData.emoji;
+
+                // Display all scores if available (for emotion models, this is common)
+                textEmotionScores.innerHTML = ''; // Clear previous scores
+                outputs.forEach(item => {
+                    const li = document.createElement('li');
+                    li.innerHTML = `<span class="font-bold">${item.label}:</span> ${(item.score * 100).toFixed(2)}%`;
+                    textEmotionScores.appendChild(li);
+                });
+
+                showElement(textAnalysisResult);
+                hideElement(textLoadingContainer);
+
+            } catch (error) {
+                showStatus(textErrorMessage, `Error during text analysis: ${error.message}`);
+                hideElement(textLoadingContainer);
+                console.error("Text analysis error:", error);
+            }
+        }
+
+        textInput.addEventListener('input', () => {
+            analyzeTextButton.disabled = textInput.value.trim() === '';
+            if (textInput.value.trim() !== '') {
+                analyzeTextButton.classList.remove('disabled');
+            } else {
+                analyzeTextButton.classList.add('disabled');
+            }
+            hideElement(textAnalysisResult); // Hide results on new input
+            hideElement(textErrorMessage);
+        });
+
+        analyzeTextButton.addEventListener('click', analyzeTextEmotion);
+
+
+        // --- Audio Emotion Detection Functions ---
+        async function initAudioContext() {
+            if (!audioContext) {
+                try {
+                    audioContext = new (window.AudioContext || window.webkitAudioContext)();
+                    console.log("AudioContext initialized.");
+                } catch (e) {
+                    showStatus(audioErrorMessage, "Web Audio API not supported in this browser.");
+                    console.error("AudioContext error:", e);
+                    return false;
+                }
+            }
+            return true;
+        }
+
+        async function startRecording() {
+            if (!await initAudioContext()) return;
+
+            showStatus(audioStatus, "Requesting microphone access...");
+            hideElement(audioErrorMessage);
+            hideElement(audioAnalysisResult);
+            audioPlayback.classList.add('hidden');
+            audioBlob = null;
+
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                mediaRecorder = new MediaRecorder(stream);
+                audioChunks = [];
+
+                mediaRecorder.ondataavailable = event => {
+                    audioChunks.push(event.data);
+                };
+
+                mediaRecorder.onstop = () => {
+                    audioBlob = new Blob(audioChunks, { type: 'audio/webm; codecs=opus' });
+                    audioPlayback.src = URL.createObjectURL(audioBlob);
+                    showElement(audioPlayback);
+                    audioStatus.textContent = "Recording stopped. Ready to analyze.";
+                    analyzeAudioButton.classList.remove('disabled');
+                    analyzeAudioButton.disabled = false;
+                    stream.getTracks().forEach(track => track.stop()); // Stop microphone track
+                };
+
+                mediaRecorder.onstart = () => {
+                    audioStatus.textContent = "Recording...";
+                    startRecordingButton.classList.add('disabled');
+                    startRecordingButton.disabled = true;
+                    stopRecordingButton.classList.remove('disabled');
+                    stopRecordingButton.disabled = false;
+                    analyzeAudioButton.classList.add('disabled');
+                    analyzeAudioButton.disabled = true;
+                };
+
+                mediaRecorder.onerror = event => {
+                    showStatus(audioErrorMessage, `Recording error: ${event.error.name}`);
+                    audioStatus.textContent = "Recording failed.";
+                    console.error("MediaRecorder error:", event.error);
+                    stopRecordingButton.classList.add('disabled');
+                    stopRecordingButton.disabled = true;
+                    startRecordingButton.classList.remove('disabled');
+                    startRecordingButton.disabled = false;
+                };
+
+                mediaRecorder.start();
+                console.log("Recording started.");
+
+            } catch (err) {
+                if (err.name === "NotAllowedError" || err.name === "PermissionDeniedError") {
+                    showStatus(audioErrorMessage, "Microphone access denied. Please allow access.");
+                } else if (err.name === "NotFoundError" || err.name === "DevicesNotFoundError") {
+                    showStatus(audioErrorMessage, "No microphone found.");
+                } else {
+                    showStatus(audioErrorMessage, `Could not access microphone: ${err.message}`);
+                }
+                audioStatus.textContent = "Microphone access failed.";
+                console.error("Microphone access error:", err);
+            }
+        }
+
+        function stopRecording() {
+            if (mediaRecorder && mediaRecorder.state !== 'inactive') {
+                mediaRecorder.stop();
+                console.log("Recording stopped.");
+                stopRecordingButton.classList.add('disabled');
+                stopRecordingButton.disabled = true;
+                startRecordingButton.classList.remove('disabled');
+                startRecordingButton.disabled = false;
+            }
+        }
+
+        async function analyzeAudioEmotion() {
+            if (!audioBlob) {
+                showStatus(audioErrorMessage, "Please record audio first.");
+                return;
+            }
+
+            // --- IMPORTANT ---
+            // This is a placeholder. Real audio emotion detection requires:
+            // 1. A pre-trained audio emotion model (e.g., from Hugging Face for TensorFlow.js/ONNX Runtime).
+            //    These models are typically large (tens/hundreds of MBs).
+            // 2. Audio feature extraction (e.g., MFCC, Spectrogram) using Web Audio API or a library.
+            // 3. Running inference on the extracted features with the loaded model.
+            //
+            // Due to complexity and model size, a full implementation is beyond this example.
+            // I'll simulate a result and provide comments on what would be needed.
+
+            showElement(audioLoadingContainer);
+            updateLoadingText(audioLoadingContainer.querySelector('p'), "Analyzing audio (simulated)...");
+            hideElement(audioAnalysisResult);
+            hideElement(audioErrorMessage);
+            analyzeAudioButton.classList.add('disabled');
+            analyzeAudioButton.disabled = true;
+
+            // Simulate AI processing time
+            await new Promise(resolve => setTimeout(resolve, 2500)); 
+
+            try {
+                // --- REAL IMPLEMENTATION WOULD GO HERE ---
+                // Example of what would be needed:
+                // const audioBuffer = await audioContext.decodeAudioData(await audioBlob.arrayBuffer());
+                // // Extract features (e.g., using a custom function or another library)
+                // const features = extractAudioFeatures(audioBuffer);
+                // // Load and run a specialized audio model
+                // const audioEmotionModel = await tf.loadGraphModel('path/to/your/audio_model/model.json');
+                // const prediction = audioEmotionModel.predict(tf.tensor(features));
+                // const detectedEmotion = getEmotionFromPrediction(prediction);
+
+                // --- SIMULATED RESULT ---
+                const simulatedEmotions = ['happy', 'neutral', 'sad', 'angry', 'surprised'];
+                const detectedEmotion = simulatedEmotions[Math.floor(Math.random() * simulatedEmotions.length)];
+                
+                const emotionData = cameraEmotionMap[detectedEmotion] || cameraEmotionMap.neutral; // Re-use camera map
+                audioEmotionText.textContent = emotionData.text;
+                audioEmotionEmoji.textContent = emotionData.emoji;
+
+                showElement(audioAnalysisResult);
+                hideElement(audioLoadingContainer);
+                audioStatus.textContent = "Analysis complete.";
+
+            } catch (error) {
+                showStatus(audioErrorMessage, `Audio analysis failed: ${error.message}. (This feature is experimental and models are large.)`);
+                audioStatus.textContent = "Analysis failed.";
+                console.error("Audio analysis error:", error);
+            } finally {
+                analyzeAudioButton.classList.remove('disabled');
+                analyzeAudioButton.disabled = false;
+            }
+        }
+
+        startRecordingButton.addEventListener('click', startRecording);
+        stopRecordingButton.addEventListener('click', stopRecording);
+        analyzeAudioButton.addEventListener('click', analyzeAudioEmotion);
+
+        // --- Initial Load ---
+        document.addEventListener('DOMContentLoaded', async () => {
+            // Initialize camera module only if it's the default active tab
+            if (document.querySelector('.tab-button.active').dataset.tab === 'camera') {
+                initializeApp();
+            }
+            
+            // Pre-load text model when DOM is ready, for faster access when tab is switched
+            loadTextModel();
+            
+            // Pre-load audio context (but not heavy model)
+            initAudioContext();
+        });
+    </script>
+</body>
+</html>
